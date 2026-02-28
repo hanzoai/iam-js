@@ -43,6 +43,7 @@ export type {
   IamJwtClaims,
   IamUser,
   IamOrganization,
+  IamInvitation,
   IamProject,
   Subscription,
   Plan,

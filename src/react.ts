@@ -46,7 +46,7 @@ import type { ReactNode } from "react";
 import { BrowserIamSdk } from "./browser.js";
 import type { BrowserIamConfig } from "./browser.js";
 import { IamClient } from "./client.js";
-import type { IamUser, IamOrganization, IamProject, TokenResponse } from "./types.js";
+import type { IamUser, IamOrganization, IamInvitation, IamProject, TokenResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -587,6 +587,200 @@ export function useIamToken(): {
     isValid: isAuthenticated && !!accessToken && !sdk.isTokenExpired(),
     refresh,
   };
+}
+
+// ---------------------------------------------------------------------------
+// useOrgManagement
+// ---------------------------------------------------------------------------
+
+export interface OrgManagementState {
+  /** Create a new organization. */
+  createOrg: (org: Partial<IamOrganization>) => Promise<void>;
+  /** Update an existing organization. */
+  updateOrg: (org: Partial<IamOrganization>) => Promise<void>;
+  /** Delete an organization by owner and name. */
+  deleteOrg: (org: { owner: string; name: string }) => Promise<void>;
+  /** Whether a mutation is in progress. */
+  isLoading: boolean;
+}
+
+/**
+ * Manage organization CRUD operations.
+ *
+ * Provides create, update, and delete methods that call the IAM API
+ * using the current user's access token.
+ */
+export function useOrgManagement(): OrgManagementState {
+  const { config, accessToken } = useIam();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const client = useMemo(
+    () =>
+      new IamClient({
+        serverUrl: config.serverUrl,
+        clientId: config.clientId,
+      }),
+    [config.serverUrl, config.clientId],
+  );
+
+  const createOrg = useCallback(
+    async (org: Partial<IamOrganization>) => {
+      setIsLoading(true);
+      try {
+        await client.createOrganization(org, accessToken ?? undefined);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken],
+  );
+
+  const updateOrg = useCallback(
+    async (org: Partial<IamOrganization>) => {
+      setIsLoading(true);
+      try {
+        await client.updateOrganization(org, accessToken ?? undefined);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken],
+  );
+
+  const deleteOrg = useCallback(
+    async (org: { owner: string; name: string }) => {
+      setIsLoading(true);
+      try {
+        await client.deleteOrganization(org, accessToken ?? undefined);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken],
+  );
+
+  return { createOrg, updateOrg, deleteOrg, isLoading };
+}
+
+// ---------------------------------------------------------------------------
+// useInvitations
+// ---------------------------------------------------------------------------
+
+export interface InvitationsState {
+  /** All invitations for the organization. */
+  invitations: IamInvitation[];
+  /** Create a new invitation. */
+  createInvite: (invitation: Partial<IamInvitation>) => Promise<void>;
+  /** Send an existing invitation. */
+  sendInvite: (invitation: { owner: string; name: string }) => Promise<void>;
+  /** Verify an invitation code. */
+  verifyInvite: (code: string) => Promise<IamInvitation | null>;
+  /** Whether invitations are loading. */
+  isLoading: boolean;
+  /** Re-fetch the invitations list. */
+  refresh: () => Promise<void>;
+}
+
+/**
+ * Manage invitations for an organization.
+ *
+ * Fetches the invitation list on mount and provides create, send,
+ * and verify methods using the current user's access token.
+ */
+export function useInvitations(orgName: string): InvitationsState {
+  const { config, accessToken, isAuthenticated } = useIam();
+  const [invitations, setInvitations] = useState<IamInvitation[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const client = useMemo(
+    () =>
+      new IamClient({
+        serverUrl: config.serverUrl,
+        clientId: config.clientId,
+      }),
+    [config.serverUrl, config.clientId],
+  );
+
+  const fetchInvitations = useCallback(async () => {
+    if (!isAuthenticated || !accessToken || !orgName) return;
+    setIsLoading(true);
+    try {
+      const data = await client.getInvitations(orgName, accessToken);
+      setInvitations(data);
+    } catch {
+      setInvitations([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client, orgName, accessToken, isAuthenticated]);
+
+  // Fetch invitations on mount and when orgName changes
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken || !orgName) {
+      setInvitations([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const data = await client.getInvitations(orgName, accessToken);
+        if (!cancelled) setInvitations(data);
+      } catch {
+        if (!cancelled) setInvitations([]);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, accessToken, orgName, config.serverUrl, config.clientId]);
+
+  const createInvite = useCallback(
+    async (invitation: Partial<IamInvitation>) => {
+      setIsLoading(true);
+      try {
+        await client.createInvitation(invitation, accessToken ?? undefined);
+        await fetchInvitations();
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken, fetchInvitations],
+  );
+
+  const sendInvite = useCallback(
+    async (invitation: { owner: string; name: string }) => {
+      setIsLoading(true);
+      try {
+        await client.sendInvitation(invitation, accessToken ?? undefined);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken],
+  );
+
+  const verifyInvite = useCallback(
+    async (code: string): Promise<IamInvitation | null> => {
+      setIsLoading(true);
+      try {
+        const resp = await client.verifyInvitation(code, accessToken ?? undefined);
+        return resp.data ?? null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, accessToken],
+  );
+
+  return { invitations, createInvite, sendInvite, verifyInvite, isLoading, refresh: fetchInvitations };
 }
 
 // Re-export context for advanced use

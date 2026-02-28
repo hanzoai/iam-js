@@ -7,6 +7,7 @@ import type {
   IamApiResponse,
   IamUser,
   IamOrganization,
+  IamInvitation,
   IamProject,
   OidcDiscovery,
   TokenResponse,
@@ -287,6 +288,88 @@ export class IamClient {
       token,
     );
     return org ? [org] : [];
+  }
+
+  /** Create a new organization. */
+  async createOrganization(
+    org: Partial<IamOrganization>,
+    token?: string,
+  ): Promise<IamApiResponse<IamOrganization>> {
+    return this.request<IamApiResponse<IamOrganization>>(
+      "/api/add-organization",
+      { method: "POST", body: org, token },
+    );
+  }
+
+  /** Update an existing organization. */
+  async updateOrganization(
+    org: Partial<IamOrganization>,
+    token?: string,
+  ): Promise<IamApiResponse<IamOrganization>> {
+    return this.request<IamApiResponse<IamOrganization>>(
+      "/api/update-organization",
+      { method: "POST", body: org, token },
+    );
+  }
+
+  /** Delete an organization by owner and name. */
+  async deleteOrganization(
+    org: { owner: string; name: string },
+    token?: string,
+  ): Promise<IamApiResponse<IamOrganization>> {
+    return this.request<IamApiResponse<IamOrganization>>(
+      "/api/delete-organization",
+      { method: "POST", body: org, token },
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Invitation
+  // -----------------------------------------------------------------------
+
+  /** List invitations for an owner (organization). */
+  async getInvitations(
+    owner: string,
+    token?: string,
+  ): Promise<IamInvitation[]> {
+    const resp = await this.request<IamApiResponse<IamInvitation[]>>(
+      "/api/get-invitations",
+      { params: { owner }, token },
+    );
+    return resp.data ?? [];
+  }
+
+  /** Create a new invitation. */
+  async createInvitation(
+    invitation: Partial<IamInvitation>,
+    token?: string,
+  ): Promise<IamApiResponse<IamInvitation>> {
+    return this.request<IamApiResponse<IamInvitation>>(
+      "/api/add-invitation",
+      { method: "POST", body: invitation, token },
+    );
+  }
+
+  /** Send an invitation by owner and name. */
+  async sendInvitation(
+    invitation: { owner: string; name: string },
+    token?: string,
+  ): Promise<IamApiResponse<IamInvitation>> {
+    return this.request<IamApiResponse<IamInvitation>>(
+      "/api/send-invitation",
+      { method: "POST", body: invitation, token },
+    );
+  }
+
+  /** Verify an invitation code. */
+  async verifyInvitation(
+    code: string,
+    token?: string,
+  ): Promise<IamApiResponse<IamInvitation>> {
+    return this.request<IamApiResponse<IamInvitation>>(
+      "/api/verify-invitation",
+      { params: { code }, token },
+    );
   }
 
   // -----------------------------------------------------------------------

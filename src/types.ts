@@ -227,6 +227,26 @@ export type IamUsageRecord = UsageRecord;
 export type IamUsageSummary = UsageSummary;
 
 // ---------------------------------------------------------------------------
+// Invitation
+// ---------------------------------------------------------------------------
+
+export type IamInvitation = {
+  owner: string;
+  name: string;
+  displayName?: string;
+  code: string;
+  quota: number;
+  usedCount: number;
+  application?: string;
+  email?: string;
+  phone?: string;
+  signupGroup?: string;
+  state?: string;
+  createdTime?: string;
+  updatedTime?: string;
+};
+
+// ---------------------------------------------------------------------------
 // Project
 // ---------------------------------------------------------------------------
 
