@@ -14,7 +14,7 @@
  * });
  *
  * const billing = new BillingClient({
- *   commerceUrl: "https://commerce.hanzo.ai",
+ *   commerceUrl: "https://commerce-api.hanzo.ai/api",
  * });
  * ```
  */
