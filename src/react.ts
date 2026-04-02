@@ -911,3 +911,403 @@ export function OrgProjectSwitcher({
       : null,
   );
 }
+
+// ---------------------------------------------------------------------------
+// UserOrgMenu — shared org switcher + user menu for all Hanzo apps
+// ---------------------------------------------------------------------------
+
+export interface UserOrgMenuProps {
+  /** Additional CSS class for the outer container. */
+  className?: string;
+  /** Called when org changes. Use to sync external state (e.g., tenantStore). */
+  onOrgChange?: (orgId: string) => void;
+  /** Called when user clicks logout. */
+  onLogout?: () => void;
+  /** Whether to show the "Create Organization" option. Defaults to true. */
+  showCreateOrg?: boolean;
+  /** Optional endpoint for org creation (defaults to IAM's /api/add-organization). */
+  createOrgEndpoint?: string;
+}
+
+/**
+ * Shared user menu + organization switcher for all Hanzo apps.
+ *
+ * Shows current user info (name, email, avatar), a dropdown with org list,
+ * "Create Organization" option, and logout button. Uses only `@hanzo/iam`
+ * hooks — no external UI library required.
+ *
+ * @example
+ * ```tsx
+ * import { UserOrgMenu } from '@hanzo/iam/react'
+ *
+ * function TopBar() {
+ *   return (
+ *     <nav>
+ *       <UserOrgMenu
+ *         onOrgChange={(orgId) => myStore.setOrg(orgId)}
+ *         onLogout={() => router.push('/login')}
+ *       />
+ *     </nav>
+ *   )
+ * }
+ * ```
+ */
+export function UserOrgMenu({
+  className = "",
+  onOrgChange,
+  onLogout,
+  showCreateOrg = true,
+  createOrgEndpoint,
+}: UserOrgMenuProps) {
+  const { config, isAuthenticated, accessToken, user, logout } = useIam();
+  const orgState = useOrganizations();
+  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgDisplay, setNewOrgDisplay] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSwitchOrg = useCallback(
+    (orgId: string) => {
+      orgState.switchOrg(orgId);
+      onOrgChange?.(orgId);
+      setOpen(false);
+    },
+    [orgState, onOrgChange],
+  );
+
+  const handleLogout = useCallback(() => {
+    setOpen(false);
+    if (onLogout) {
+      onLogout();
+    } else {
+      logout?.();
+    }
+  }, [onLogout, logout]);
+
+  const handleCreateOrg = useCallback(async () => {
+    const name = newOrgName.trim();
+    if (!name) return;
+
+    setCreating(true);
+    setError(null);
+
+    try {
+      const client = new IamClient({
+        serverUrl: config.serverUrl,
+        clientId: config.clientId,
+      });
+
+      if (createOrgEndpoint) {
+        // Use custom endpoint (e.g., playground's /v1/orgs)
+        const res = await fetch(createOrgEndpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({
+            name,
+            displayName: newOrgDisplay.trim() || name,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || body.msg || `HTTP ${res.status}`);
+        }
+      } else {
+        // Use IAM directly
+        await client.createOrganization(
+          { owner: "admin", name, displayName: newOrgDisplay.trim() || name },
+          accessToken ?? undefined,
+        );
+      }
+
+      // Switch to new org
+      orgState.switchOrg(name);
+      onOrgChange?.(name);
+      setNewOrgName("");
+      setNewOrgDisplay("");
+      setCreateOpen(false);
+      setOpen(false);
+
+      // Reload to refresh org list
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }, [newOrgName, newOrgDisplay, config, accessToken, createOrgEndpoint, orgState, onOrgChange]);
+
+  if (!isAuthenticated) return null;
+
+  const orgs = orgState.organizations ?? [];
+  const currentLabel =
+    orgs.find((o) => o.name === orgState.currentOrgId)?.displayName ??
+    orgState.currentOrgId ??
+    "Select org";
+
+  const userName = user?.displayName || user?.name || user?.email || "User";
+  const userEmail = user?.email || "";
+  const userAvatar = user?.avatar || "";
+
+  // Inline styles (no external CSS dependencies)
+  const menuStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    marginTop: 4,
+    minWidth: 240,
+    borderRadius: 8,
+    border: "1px solid var(--border, #333)",
+    background: "var(--popover, #1a1a1a)",
+    color: "var(--popover-foreground, #fff)",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+    zIndex: 50,
+    overflow: "hidden",
+  };
+
+  const itemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    fontSize: 13,
+    cursor: "pointer",
+    transition: "background 0.1s",
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    textAlign: "left",
+  };
+
+  const activeItemStyle: React.CSSProperties = {
+    ...itemStyle,
+    background: "var(--accent, #2a2a2a)",
+  };
+
+  const separatorStyle: React.CSSProperties = {
+    height: 1,
+    background: "var(--border, #333)",
+    margin: "4px 0",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    padding: "6px 12px",
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
+    color: "var(--muted-foreground, #888)",
+  };
+
+  return createElement(
+    "div",
+    { ref: menuRef, className: `relative ${className}`, style: { position: "relative" } },
+
+    // Trigger button
+    createElement(
+      "button",
+      {
+        onClick: () => setOpen(!open),
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          color: "inherit",
+          fontSize: 13,
+          fontWeight: 500,
+        },
+        "aria-label": "User menu",
+      },
+      userAvatar
+        ? createElement("img", {
+            src: userAvatar,
+            alt: userName,
+            style: { width: 24, height: 24, borderRadius: "50%", objectFit: "cover" as const },
+          })
+        : createElement(
+            "div",
+            {
+              style: {
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                background: "var(--primary, #3b82f6)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#fff",
+              },
+            },
+            userName.charAt(0).toUpperCase(),
+          ),
+      createElement("span", { style: { maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const } }, currentLabel),
+      createElement("span", { style: { fontSize: 10, opacity: 0.5 } }, open ? "\u25B2" : "\u25BC"),
+    ),
+
+    // Dropdown menu
+    open &&
+      createElement(
+        "div",
+        { style: menuStyle },
+
+        // User info section
+        createElement(
+          "div",
+          { style: { padding: "10px 12px", borderBottom: "1px solid var(--border, #333)" } },
+          createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, userName),
+          userEmail && createElement("div", { style: { fontSize: 11, opacity: 0.6, marginTop: 2 } }, userEmail),
+        ),
+
+        // Organization section
+        createElement("div", { style: labelStyle }, "Organization"),
+        ...orgs.map((org) =>
+          createElement(
+            "button",
+            {
+              key: org.name,
+              onClick: () => handleSwitchOrg(org.name),
+              style: org.name === orgState.currentOrgId ? activeItemStyle : itemStyle,
+              onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLElement).style.background = "var(--accent, #2a2a2a)"; },
+              onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { if (org.name !== orgState.currentOrgId) (e.target as HTMLElement).style.background = "transparent"; },
+            },
+            org.name === orgState.currentOrgId ? "\u2713 " : "  ",
+            org.displayName || org.name,
+          ),
+        ),
+
+        // Create org option
+        showCreateOrg &&
+          createElement(
+            "div",
+            null,
+            createElement("div", { style: separatorStyle }),
+            !createOpen
+              ? createElement(
+                  "button",
+                  {
+                    onClick: () => setCreateOpen(true),
+                    style: itemStyle,
+                    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLElement).style.background = "var(--accent, #2a2a2a)"; },
+                    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLElement).style.background = "transparent"; },
+                  },
+                  "+ Create Organization",
+                )
+              : createElement(
+                  "div",
+                  { style: { padding: "8px 12px" } },
+                  createElement("input", {
+                    type: "text",
+                    placeholder: "org-name",
+                    value: newOrgName,
+                    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNewOrgName(e.target.value),
+                    style: {
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: 12,
+                      borderRadius: 4,
+                      border: "1px solid var(--border, #333)",
+                      background: "var(--background, #111)",
+                      color: "inherit",
+                      marginBottom: 4,
+                    },
+                    disabled: creating,
+                  }),
+                  createElement("input", {
+                    type: "text",
+                    placeholder: "Display Name",
+                    value: newOrgDisplay,
+                    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNewOrgDisplay(e.target.value),
+                    style: {
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: 12,
+                      borderRadius: 4,
+                      border: "1px solid var(--border, #333)",
+                      background: "var(--background, #111)",
+                      color: "inherit",
+                      marginBottom: 4,
+                    },
+                    disabled: creating,
+                  }),
+                  error && createElement("div", { style: { fontSize: 11, color: "#ef4444", marginBottom: 4 } }, error),
+                  createElement(
+                    "div",
+                    { style: { display: "flex", gap: 4 } },
+                    createElement(
+                      "button",
+                      {
+                        onClick: handleCreateOrg,
+                        disabled: creating || !newOrgName.trim(),
+                        style: {
+                          flex: 1,
+                          padding: "5px 8px",
+                          fontSize: 12,
+                          borderRadius: 4,
+                          border: "none",
+                          background: "var(--primary, #3b82f6)",
+                          color: "#fff",
+                          cursor: creating ? "wait" : "pointer",
+                          opacity: creating || !newOrgName.trim() ? 0.5 : 1,
+                        },
+                      },
+                      creating ? "Creating..." : "Create",
+                    ),
+                    createElement(
+                      "button",
+                      {
+                        onClick: () => { setCreateOpen(false); setError(null); },
+                        style: {
+                          padding: "5px 8px",
+                          fontSize: 12,
+                          borderRadius: 4,
+                          border: "1px solid var(--border, #333)",
+                          background: "transparent",
+                          color: "inherit",
+                          cursor: "pointer",
+                        },
+                      },
+                      "Cancel",
+                    ),
+                  ),
+                ),
+          ),
+
+        // Logout
+        createElement("div", { style: separatorStyle }),
+        createElement(
+          "button",
+          {
+            onClick: handleLogout,
+            style: { ...itemStyle, color: "var(--destructive, #ef4444)" },
+            onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLElement).style.background = "var(--accent, #2a2a2a)"; },
+            onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { (e.target as HTMLElement).style.background = "transparent"; },
+          },
+          "Sign out",
+        ),
+      ),
+  );
+}
