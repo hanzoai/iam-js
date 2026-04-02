@@ -253,9 +253,7 @@ export class IamClient {
 
   /** List organizations (for the configured owner). */
   async getOrganizations(token?: string): Promise<IamOrganization[]> {
-    // Try the admin-level endpoint first (returns full org details).
-    // Falls back to the public get-organization-names endpoint which
-    // returns all org names without requiring admin privileges.
+    // For admin users, try the full org list endpoint.
     const owner = this.orgName ?? "admin";
     try {
       const resp = await this.request<IamApiResponse<IamOrganization[]>>(
@@ -264,19 +262,40 @@ export class IamClient {
       );
       if (resp.data && resp.data.length > 0) return resp.data;
     } catch {
-      // Admin endpoint failed — fall through to public endpoint
+      // Not an admin — fall through to user-scoped approach
     }
 
-    // Public fallback: get-organization-names (no auth required)
-    try {
-      const resp = await this.request<IamApiResponse<IamOrganization[]>>(
-        "/api/get-organization-names",
-        { params: { owner }, token },
-      );
-      return resp.data ?? [];
-    } catch {
-      return [];
+    // For regular users: return only orgs the user belongs to.
+    // Parse JWT to get the user's primary org, then check for personal org.
+    const orgs: IamOrganization[] = [];
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const userOwner = payload.owner as string;
+        const userName = payload.name as string;
+
+        // Add primary org
+        if (userOwner) {
+          orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
+        }
+
+        // Check if user has a personal org (name == username, different from primary)
+        if (userName && userName !== userOwner) {
+          try {
+            const personalOrg = await this.getOrganization(`admin/${userName}`, token);
+            if (personalOrg) {
+              orgs.push(personalOrg);
+            }
+          } catch {
+            // No personal org — that's fine
+          }
+        }
+      } catch {
+        // JWT parse failed
+      }
     }
+
+    return orgs;
   }
 
   /** Get a specific organization. */
