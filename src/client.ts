@@ -270,7 +270,10 @@ export class IamClient {
     const orgs: IamOrganization[] = [];
     if (token) {
       try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
+        // JWT uses base64url encoding — convert to standard base64 for atob()
+        let b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const payload = JSON.parse(atob(b64));
         const userOwner = payload.owner as string;
         const userName = payload.name as string;
 
