@@ -253,12 +253,30 @@ export class IamClient {
 
   /** List organizations (for the configured owner). */
   async getOrganizations(token?: string): Promise<IamOrganization[]> {
+    // Try the admin-level endpoint first (returns full org details).
+    // Falls back to the public get-organization-names endpoint which
+    // returns all org names without requiring admin privileges.
     const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamOrganization[]>>(
-      "/api/get-organizations",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+    try {
+      const resp = await this.request<IamApiResponse<IamOrganization[]>>(
+        "/api/get-organizations",
+        { params: { owner }, token },
+      );
+      if (resp.data && resp.data.length > 0) return resp.data;
+    } catch {
+      // Admin endpoint failed — fall through to public endpoint
+    }
+
+    // Public fallback: get-organization-names (no auth required)
+    try {
+      const resp = await this.request<IamApiResponse<IamOrganization[]>>(
+        "/api/get-organization-names",
+        { params: { owner }, token },
+      );
+      return resp.data ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /** Get a specific organization. */
