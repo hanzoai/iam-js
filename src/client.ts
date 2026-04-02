@@ -279,16 +279,16 @@ export class IamClient {
           orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
         }
 
-        // Check if user has a personal org (name == username, different from primary)
+        // Add personal org if different from primary.
+        // Personal orgs are created at signup with name == username.
+        // We add it optimistically — if it doesn't exist in IAM, the user
+        // just won't be able to switch to it (and org isolation will show empty).
         if (userName && userName !== userOwner) {
-          try {
-            const personalOrg = await this.getOrganization(`admin/${userName}`, token);
-            if (personalOrg) {
-              orgs.push(personalOrg);
-            }
-          } catch {
-            // No personal org — that's fine
-          }
+          orgs.push({
+            owner: "admin",
+            name: userName,
+            displayName: `${userName} (Personal)`,
+          });
         }
       } catch {
         // JWT parse failed
