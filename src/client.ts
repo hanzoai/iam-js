@@ -253,9 +253,14 @@ export class IamClient {
 
   /** List organizations (for the configured owner). */
   async getOrganizations(token?: string): Promise<IamOrganization[]> {
-    // Start with orgs derived from the JWT token (always available, no API call).
+    // Build the user's org list from JWT claims.
+    // The user's "owner" field is the signup org (used for auth only).
+    // Their personal org (name == username) is their actual workspace.
+    // Additional orgs come from invitations (future: membership table).
     const orgs: IamOrganization[] = [];
     const orgNames = new Set<string>();
+
+    let signupOrg = "";
 
     if (token) {
       try {
@@ -265,27 +270,31 @@ export class IamClient {
         const userOwner = payload.owner as string;
         const userName = payload.name as string;
 
-        if (userOwner) {
-          orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
-          orgNames.add(userOwner);
-        }
+        signupOrg = userOwner;
 
-        // Personal org (created at signup, name == username)
+        // Personal org (name == username) is the user's primary workspace.
+        // Show this first — it's their default org.
         if (userName && userName !== userOwner) {
           orgs.push({
             owner: "admin",
             name: userName,
-            displayName: `${userName} (Personal)`,
+            displayName: userName,
           });
           orgNames.add(userName);
+        }
+
+        // If no personal org (username == owner), show the signup org as workspace
+        if (!orgNames.size && userOwner) {
+          orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
+          orgNames.add(userOwner);
         }
       } catch {
         // JWT parse failed
       }
     }
 
-    // Try the API to get additional orgs (e.g., orgs the user was invited to).
-    // Merge with JWT-derived orgs, don't replace them.
+    // Try the API to get additional orgs the user was invited to.
+    // Exclude the signup org (it's just for auth, not a workspace).
     const owner = this.orgName ?? "admin";
     try {
       const resp = await this.request<IamApiResponse<IamOrganization[]>>(
@@ -294,6 +303,8 @@ export class IamClient {
       );
       if (resp.data) {
         for (const org of resp.data) {
+          // Skip the signup org — it's not a user workspace
+          if (org.name === signupOrg && orgNames.size > 0) continue;
           if (!orgNames.has(org.name)) {
             orgs.push(org);
             orgNames.add(org.name);

@@ -405,35 +405,32 @@ export function useOrganizations(): OrgState {
     const fetchOrgs = async () => {
       setIsLoading(true);
 
-      // 1. Parse JWT claims for primary org (immediate, no API call)
+      // 1. Parse JWT claims for user's workspace org (immediate, no API call)
+      // The user's "owner" is the signup org (for auth). Their personal org
+      // (name == username) is their actual workspace.
       try {
         let b64 = accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
         while (b64.length % 4) b64 += "=";
         const payload = JSON.parse(atob(b64));
 
-        // Try owner claim first (Casdoor), then sub with "/" separator
         const userOwner = (payload.owner as string) ?? "";
         const userName = (payload.name as string) ?? "";
         const sub = (payload.sub as string) ?? "";
-        const primaryOrg = userOwner || (sub.includes("/") ? sub.split("/")[0] : "");
 
-        if (primaryOrg && !cancelled) {
+        // Personal org is the default workspace
+        const workspaceOrg = (userName && userName !== userOwner)
+          ? userName
+          : userOwner || (sub.includes("/") ? sub.split("/")[0] : "");
+
+        if (workspaceOrg && !cancelled) {
           const immediateOrgs: IamOrganization[] = [
-            { owner: "admin", name: primaryOrg, displayName: primaryOrg },
+            { owner: "admin", name: workspaceOrg, displayName: workspaceOrg },
           ];
-          // Add personal org if username differs from primary org
-          if (userName && userName !== primaryOrg) {
-            immediateOrgs.push({
-              owner: "admin",
-              name: userName,
-              displayName: `${userName} (Personal)`,
-            });
-          }
           setOrganizations(immediateOrgs);
           if (!currentOrgId) {
-            setCurrentOrgId(primaryOrg);
+            setCurrentOrgId(workspaceOrg);
             try {
-              localStorage.setItem(STORAGE_ORG_KEY, primaryOrg);
+              localStorage.setItem(STORAGE_ORG_KEY, workspaceOrg);
             } catch {
               /* ok */
             }
