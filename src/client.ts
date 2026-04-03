@@ -271,9 +271,9 @@ export class IamClient {
         const userName = payload.name as string;
 
         signupOrg = userOwner;
+        const isAdmin = !!payload.isAdmin;
 
         // Personal org (name == username) is the user's primary workspace.
-        // Show this first — it's their default org.
         if (userName && userName !== userOwner) {
           orgs.push({
             owner: "admin",
@@ -281,6 +281,13 @@ export class IamClient {
             displayName: userName,
           });
           orgNames.add(userName);
+        }
+
+        // Admin users also see their signup org (they manage it).
+        // Non-admin users only see their personal org.
+        if (isAdmin && userOwner && !orgNames.has(userOwner)) {
+          orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
+          orgNames.add(userOwner);
         }
 
         // If no personal org (username == owner), show the signup org as workspace

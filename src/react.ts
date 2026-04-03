@@ -416,6 +416,7 @@ export function useOrganizations(): OrgState {
         const userOwner = (payload.owner as string) ?? "";
         const userName = (payload.name as string) ?? "";
         const sub = (payload.sub as string) ?? "";
+        const isAdmin = !!payload.isAdmin;
 
         // Personal org is the default workspace
         const workspaceOrg = (userName && userName !== userOwner)
@@ -426,6 +427,10 @@ export function useOrganizations(): OrgState {
           const immediateOrgs: IamOrganization[] = [
             { owner: "admin", name: workspaceOrg, displayName: workspaceOrg },
           ];
+          // Admin users also see their signup org (they manage it)
+          if (isAdmin && userOwner && userOwner !== workspaceOrg) {
+            immediateOrgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
+          }
           setOrganizations(immediateOrgs);
           if (!currentOrgId) {
             setCurrentOrgId(workspaceOrg);
