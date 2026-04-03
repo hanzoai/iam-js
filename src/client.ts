@@ -253,49 +253,55 @@ export class IamClient {
 
   /** List organizations (for the configured owner). */
   async getOrganizations(token?: string): Promise<IamOrganization[]> {
-    // For admin users, try the full org list endpoint.
-    const owner = this.orgName ?? "admin";
-    try {
-      const resp = await this.request<IamApiResponse<IamOrganization[]>>(
-        "/api/get-organizations",
-        { params: { owner }, token },
-      );
-      if (resp.data && resp.data.length > 0) return resp.data;
-    } catch {
-      // Not an admin — fall through to user-scoped approach
-    }
-
-    // For regular users: return only orgs the user belongs to.
-    // Parse JWT to get the user's primary org, then check for personal org.
+    // Start with orgs derived from the JWT token (always available, no API call).
     const orgs: IamOrganization[] = [];
+    const orgNames = new Set<string>();
+
     if (token) {
       try {
-        // JWT uses base64url encoding — convert to standard base64 for atob()
         let b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
         while (b64.length % 4) b64 += "=";
         const payload = JSON.parse(atob(b64));
         const userOwner = payload.owner as string;
         const userName = payload.name as string;
 
-        // Add primary org
         if (userOwner) {
           orgs.push({ owner: "admin", name: userOwner, displayName: userOwner });
+          orgNames.add(userOwner);
         }
 
-        // Add personal org if different from primary.
-        // Personal orgs are created at signup with name == username.
-        // We add it optimistically — if it doesn't exist in IAM, the user
-        // just won't be able to switch to it (and org isolation will show empty).
+        // Personal org (created at signup, name == username)
         if (userName && userName !== userOwner) {
           orgs.push({
             owner: "admin",
             name: userName,
             displayName: `${userName} (Personal)`,
           });
+          orgNames.add(userName);
         }
       } catch {
         // JWT parse failed
       }
+    }
+
+    // Try the API to get additional orgs (e.g., orgs the user was invited to).
+    // Merge with JWT-derived orgs, don't replace them.
+    const owner = this.orgName ?? "admin";
+    try {
+      const resp = await this.request<IamApiResponse<IamOrganization[]>>(
+        "/api/get-organizations",
+        { params: { owner }, token },
+      );
+      if (resp.data) {
+        for (const org of resp.data) {
+          if (!orgNames.has(org.name)) {
+            orgs.push(org);
+            orgNames.add(org.name);
+          }
+        }
+      }
+    } catch {
+      // API failed — JWT-derived orgs are sufficient
     }
 
     return orgs;
